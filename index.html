@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TelaStock — Sistema de Gestión de Telas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet">
+    <script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                colors: {
+                    copper: { 50:'#FDF5EC', 100:'#FAE6D0', 200:'#F5C9A0', 300:'#E8A838', 400:'#D4863A', 500:'#B86E2D', 600:'#9A5820', 700:'#7A4418', 800:'#1E2432', 900:'#151A26' },
+                    teal: { 500:'#2D9B83', 600:'#238A72' },
+                    terra: { 500:'#C44D2B', 600:'#A83D22' },
+                    cream: '#F4F1ED',
+                },
+                fontFamily: { display:['Playfair Display','serif'], body:['DM Sans','sans-serif'] }
+            }
+        }
+    }
+    </script>
+    <style>
+        :root { --bg:#F4F1ED; --fg:#2A2A2A; --muted:#8A8A8A; --accent:#D4863A; --card:#FFF; --border:#E5E0D8; --sidebar-bg:#1E2432; --sidebar-hover:#2A3545; --success:#2D9B83; --warning:#E8A838; --danger:#C44D2B; }
+        * { box-sizing:border-box; }
+        body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--fg); }
+        h1,h2,h3,.font-display { font-family:'Playfair Display',serif; }
+        #sidebar { width:260px; min-width:260px; transition:transform .3s; }
+        #sidebar.collapsed { transform:translateX(-260px); min-width:0; width:0; }
+        .nav-item { transition:all .2s; border-left:3px solid transparent; }
+        .nav-item:hover { background:var(--sidebar-hover); }
+        .nav-item.active { background:var(--sidebar-hover); border-left-color:var(--accent); }
+        .nav-sub { max-height:0; overflow:hidden; transition:max-height .3s; }
+        .nav-sub.open { max-height:300px; }
+        #modal-overlay { transition:opacity .25s; }
+        #modal-overlay.hidden { opacity:0; pointer-events:none; }
+        #modal-card { transition:transform .25s,opacity .25s; }
+        #modal-overlay.hidden #modal-card { transform:scale(.9); opacity:0; }
+        .toast-enter { animation:slideInR .3s forwards; }
+        .toast-exit { animation:slideOutR .3s forwards; }
+        @keyframes slideInR { from{transform:translateX(120%);opacity:0} to{transform:translateX(0);opacity:1} }
+        @keyframes slideOutR { from{transform:translateX(0);opacity:1} to{transform:translateX(120%);opacity:0} }
+        .fade-in { animation:fadeIn .3s forwards; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .spin { animation:spin 1s linear infinite; }
+        @keyframes spin { to{transform:rotate(360deg)} }
+        ::-webkit-scrollbar { width:6px; }
+        ::-webkit-scrollbar-thumb { background:#ccc; border-radius:3px; }
+        .login-bg { background:linear-gradient(135deg,#1E2432,#2A3545,#1E2432); position:relative; overflow:hidden; }
+        .login-bg::before { content:''; position:absolute; inset:0; background:radial-gradient(circle at 20% 80%,rgba(212,134,58,.15),transparent 50%),radial-gradient(circle at 80% 20%,rgba(45,155,131,.1),transparent 50%); }
+        .data-row:hover { background:#FDF5EC; }
+        .stat-card:hover .stat-icon { transform:scale(1.15); }
+        .stat-icon { transition:transform .3s; }
+        .badge { display:inline-block; padding:2px 8px; border-radius:9999px; font-size:.75rem; font-weight:600; }
+        @media(max-width:768px) { #sidebar { position:fixed; z-index:40; height:100vh; } }
+    </style>
+</head>
+<body class="min-h-screen">
+
+<!-- ====== LOADING GLOBAL ====== -->
+<div id="global-loader" class="hidden fixed inset-0 z-[70] bg-cream flex items-center justify-center">
+    <i class="fa-solid fa-spinner spin text-copper-400 text-4xl"></i>
+</div>
+
+<!-- ====== LOGIN ====== -->
+<div id="login-overlay" class="login-bg fixed inset-0 z-50 flex items-center justify-center">
+    <div class="relative z-10 w-full max-w-md px-6">
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center gap-3 mb-4"><i class="fa-solid fa-layer-group text-copper-400 text-3xl"></i><h1 class="font-display text-3xl text-white tracking-wide">TelaStock</h1></div>
+            <p class="text-copper-100/70 text-sm">Sistema de Gestión para Tienda de Telas</p>
+        </div>
+        <div class="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
+            <div id="login-error" class="hidden bg-terra-500/20 text-terra-500 text-sm rounded-lg px-4 py-2 mb-4"></div>
+            <div class="mb-5"><label class="text-copper-100/80 text-sm mb-1 block">Email</label><input id="login-email" type="email" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/40 focus:border-copper-400 focus:outline-none" placeholder="admin@telastock.com"></div>
+            <div class="mb-6"><label class="text-copper-100/80 text-sm mb-1 block">Contraseña</label><input id="login-pass" type="password" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/40 focus:border-copper-400 focus:outline-none" placeholder="admin123"></div>
+            <button onclick="handleLogin()" id="login-btn" class="w-full bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-4 py-3 transition transform hover:scale-[1.02] active:scale-[.98]">Iniciar Sesión</button>
+            <p class="text-white/30 text-xs mt-4 text-center">Demo: admin@telastock.com / admin123</p>
+        </div>
+    </div>
+</div>
+
+<!-- ====== MAIN APP ====== -->
+<div id="main-app" class="hidden flex h-screen overflow-hidden">
+    <aside id="sidebar" class="bg-copper-800 text-white flex flex-col h-full overflow-y-auto">
+        <div class="px-5 py-5 flex items-center gap-3 border-b border-white/10"><i class="fa-solid fa-layer-group text-copper-400 text-2xl"></i><h2 class="font-display text-xl tracking-wide">TelaStock</h2></div>
+        <nav id="sidebar-nav" class="flex-1 py-3"></nav>
+        <div class="px-5 py-4 border-t border-white/10"><div id="sidebar-user" class="flex items-center gap-3"></div></div>
+    </aside>
+    <div class="flex-1 flex flex-col overflow-hidden">
+        <header id="header" class="bg-white border-b border-[var(--border)] px-6 py-3 flex items-center justify-between shadow-sm">
+            <div class="flex items-center gap-4"><button onclick="toggleSidebar()" class="text-[var(--muted)] hover:text-[var(--fg)] transition text-lg"><i class="fa-solid fa-bars"></i></button><h2 id="header-title" class="font-display text-xl"></h2></div>
+            <button onclick="handleLogout()" class="text-[var(--muted)] hover:text-terra-500 transition text-sm flex items-center gap-2"><i class="fa-solid fa-right-from-bracket"></i> Salir</button>
+        </header>
+        <main id="content" class="flex-1 overflow-y-auto p-6 bg-cream"></main>
+    </div>
+</div>
+
+<!-- ====== MODAL ====== -->
+<div id="modal-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div id="modal-card" class="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto"></div>
+</div>
+
+<!-- ====== TOAST ====== -->
+<div id="toast-container" class="fixed top-4 right-4 z-[60] flex flex-col gap-2 max-w-sm"></div>
+
+<script>
+// =============================================
+// ⚠️ REEMPLAZA con las credenciales de tu proyecto Supabase
+// =============================================
+const SUPABASE_URL = 'https://vducgeuumrsgpkfnqnmy.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_gFEdmMJ-FBzs-g9u_0be_A_sRh09L3R';
+
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// =============================================
+// ESTADO
+// =============================================
+const state = {
+    currentUser: null,   // { id, email, username, full_name, role_id, active, permissions }
+    profile: null,
+    currentSection: 'dashboard',
+    currentSub: null,
+    sidebarCollapsed: false,
+    charts: {},
+    cart: [],
+    // Datos cacheados
+    fabrics: [],
+    categories: [],
+    suppliers: [],
+    movements: [],
+    sales: [],
+    saleItems: [],
+    profiles: [],
+    roles: [],
+};
+
+// =============================================
+// MENÚ
+// =============================================
+const MENU = [
+    { id:'dashboard', label:'Dashboard', icon:'fa-chart-line', perm:'dashboard' },
+    { id:'inventory', label:'Inventario', icon:'fa-boxes-stacked', perm:'inventory_stock',
+      subs:[{id:'inventory_stock',label:'Stock Actual',icon:'fa-warehouse',perm:'inventory_stock'},
+            {id:'inventory_new_movement',label:'Registrar Movimiento',icon:'fa-arrow-right-arrow-left',perm:'inventory_new_movement'},
+            {id:'inventory_movements',label:'Historial de Movimientos',icon:'fa-clock-rotate-left',perm:'inventory_movements'}]},
+    { id:'sales', label:'Ventas', icon:'fa-cart-shopping', perm:'sales_new',
+      subs:[{id:'sales_new',label:'Nueva Venta',icon:'fa-plus',perm:'sales_new'},
+            {id:'sales_history',label:'Historial de Ventas',icon:'fa-receipt',perm:'sales_history'}]},
+    { id:'maintenance', label:'Mantenimiento', icon:'fa-database', perm:'maintenance_fabrics',
+      subs:[{id:'maintenance_fabrics',label:'Telas',icon:'fa-scroll',perm:'maintenance_fabrics'},
+            {id:'maintenance_categories',label:'Categorías',icon:'fa-tags',perm:'maintenance_categories'},
+            {id:'maintenance_suppliers',label:'Proveedores',icon:'fa-truck-field',perm:'maintenance_suppliers'}]},
+    { id:'profiles', label:'Perfiles', icon:'fa-users-gear', perm:'profiles_users',
+      subs:[{id:'profiles_users',label:'Usuarios',icon:'fa-user',perm:'profiles_users'},
+            {id:'profiles_roles',label:'Roles y Permisos',icon:'fa-shield-halved',perm:'profiles_roles'}]},
+];
+
+// =============================================
+// UTILIDADES
+// =============================================
+function fmtDate(d) { if(!d)return'-'; const p=d.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; }
+function fmtCurrency(n) { return '$'+Number(n).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function todayStr() { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+
+function showToast(msg,type='info') {
+    const ct=document.getElementById('toast-container');
+    const colors={success:'bg-teal-500 text-white',error:'bg-terra-500 text-white',warning:'bg-copper-300 text-copper-900',info:'bg-copper-800 text-white'};
+    const icons={success:'fa-check-circle',error:'fa-times-circle',warning:'fa-exclamation-triangle',info:'fa-info-circle'};
+    const el=document.createElement('div');
+    el.className=`toast-enter ${colors[type]||colors.info} rounded-xl px-5 py-3 shadow-lg flex items-center gap-3 text-sm font-medium`;
+    el.innerHTML=`<i class="fa-solid ${icons[type]||icons.info}"></i><span>${msg}</span>`;
+    ct.appendChild(el);
+    setTimeout(()=>{ el.classList.remove('toast-enter'); el.classList.add('toast-exit'); setTimeout(()=>el.remove(),300); },3000);
+}
+
+function showModal(html) { document.getElementById('modal-card').innerHTML=html; document.getElementById('modal-overlay').classList.remove('hidden'); }
+function closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); }
+document.getElementById('modal-overlay').addEventListener('click',function(e){if(e.target===this)closeModal();});
+
+function hasPermission(perm) { return state.profile && state.profile.permissions && state.profile.permissions.includes(perm); }
+function showLoader(show) { document.getElementById('global-loader').classList.toggle('hidden',!show); }
+
+function getCatName(id) { const c=state.categories.find(c=>c.id===id); return c?c.name:'-'; }
+function getSuppName(id) { const s=state.suppliers.find(s=>s.id===id); return s?s.name:'-'; }
+function getUserName(id) { const p=state.profiles.find(p=>p.id===id); return p?p.full_name:'-'; }
+function getRoleName(id) { const r=state.roles.find(r=>r.id===id); return r?r.name:'-'; }
+
+// =============================================
+// CARGA DE DATOS
+// =============================================
+async function loadAllData() {
+    const [fab,cat,sup,mov,sal,si,prof,rol] = await Promise.all([
+        supabaseClient.from('fabrics').select('*').order('name'),
+        supabaseClient.from('categories').select('*').order('name'),
+        supabaseClient.from('suppliers').select('*').order('name'),
+        supabaseClient.from('movements').select('*').order('id',{ascending:false}),
+        supabaseClient.from('sales').select('*').order('id',{ascending:false}),
+        supabaseClient.from('sale_items').select('*'),
+        supabaseClient.from('profiles').select('*'),
+        supabaseClient.from('roles').select('*'),
+    ]);
+    state.fabrics=fab.data||[];
+    state.categories=cat.data||[];
+    state.suppliers=sup.data||[];
+    state.movements=mov.data||[];
+    state.sales=sal.data||[];
+    state.saleItems=si.data||[];
+    state.profiles=prof.data||[];
+    state.roles=rol.data||[];
+}
+
+async function loadData(table) {
+    const res = await supabaseClient.from(table).select('*');
+    if(res.error) { showToast('Error cargando datos: '+res.error.message,'error'); return; }
+    state[table] = res.data;
+}
+
+// =============================================
+// LOGIN / AUTH
+// =============================================
+async function handleLogin() {
+    const email=document.getElementById('login-email').value.trim();
+    const password=document.getElementById('login-pass').value;
+    const errEl=document.getElementById('login-error');
+    const btn=document.getElementById('login-btn');
+
+    if(!email||!password){ errEl.textContent='Ingrese email y contraseña'; errEl.classList.remove('hidden'); return; }
+
+    btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner spin mr-2"></i>Conectando...';
+
+    const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});
+    if(error){ errEl.textContent=error.message; errEl.classList.remove('hidden'); btn.disabled=false; btn.innerHTML='Iniciar Sesión'; return; }
+
+    errEl.classList.add('hidden');
+    await onLogin(data.user);
+    btn.disabled=false; btn.innerHTML='Iniciar Sesión';
+}
+
+async function onLogin(authUser) {
+    // Obtener perfil del usuario
+    const {data:profile}=await supabaseClient.from('profiles').select('*,roles(*)').eq('id',authUser.id).single();
+    if(!profile){ showToast('Perfil no encontrado','error'); await supabaseClient.auth.signOut(); return; }
+    if(!profile.active){ showToast('Usuario desactivado','error'); await supabaseClient.auth.signOut(); return; }
+
+    state.currentUser=authUser;
+    state.profile={ ...profile, permissions: profile.roles?.permissions||[] };
+
+    document.getElementById('login-overlay').classList.add('hidden');
+    document.getElementById('main-app').classList.remove('hidden');
+
+    showLoader(true);
+    await loadAllData();
+    showLoader(false);
+
+    renderSidebar(); renderSidebarUser();
+    navigateTo('dashboard');
+    showToast(`Bienvenido, ${profile.full_name}`, 'success');
+}
+
+async function handleLogout() {
+    Object.values(state.charts).forEach(c=>c.destroy());
+    state.charts={};
+    state.currentUser=null; state.profile=null; state.cart=[];
+    await supabaseClient.auth.signOut();
+    document.getElementById('main-app').classList.add('hidden');
+    document.getElementById('login-overlay').classList.remove('hidden');
+    document.getElementById('login-email').value='';
+    document.getElementById('login-pass').value='';
+}
+
+// Verificar sesión existente al cargar
+async function checkSession() {
+    const {data:{session}}=await supabaseClient.auth.getSession();
+    if(session && session.user){ await onLogin(session.user); }
+}
+document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')handleLogin();});
+
+// =============================================
+// SIDEBAR
+// =============================================
+function renderSidebar() {
+    const nav=document.getElementById('sidebar-nav');
+    let html='';
+    MENU.forEach(item=>{
+        if(!hasPermission(item.perm)) return;
+        const hasSubs=item.subs&&item.subs.length>0;
+        const isActive=state.currentSection===item.id||(hasSubs&&item.subs.some(s=>state.currentSub===s.id));
+        html+=`<div class="nav-item ${isActive?'active':''} px-5 py-3 cursor-pointer flex items-center gap-3 text-sm" onclick="${hasSubs?`toggleSub('${item.id}')`:`navigateTo('${item.id}')`}">
+            <i class="fa-solid ${item.icon} text-base ${isActive?'text-copper-400':'text-white/60'}"></i>
+            <span class="${isActive?'text-white font-semibold':'text-white/80'}">${item.label}</span>
+            ${hasSubs?`<i class="fa-solid fa-chevron-down text-xs ml-auto transition ${isActive?'rotate-180':'rotate-0'} text-white/40" id="chevron-${item.id}"></i>`:''}
+        </div>`;
+        if(hasSubs){
+            html+=`<div class="nav-sub ${isActive?'open':''}" id="sub-${item.id}">`;
+            item.subs.forEach(sub=>{
+                if(!hasPermission(sub.perm))return;
+                const subAct=state.currentSub===sub.id;
+                html+=`<div class="nav-item ${subAct?'active':''} px-8 py-2.5 cursor-pointer flex items-center gap-3 text-xs" onclick="navigateTo('${sub.id}')">
+                    <i class="fa-solid ${sub.icon} ${subAct?'text-copper-400':'text-white/50'}"></i>
+                    <span class="${subAct?'text-white font-semibold':'text-white/70'}">${sub.label}</span>
+                </div>`;
+            });
+            html+='</div>';
+        }
+    });
+    nav.innerHTML=html;
+}
+
+function toggleSub(id){ const sub=document.getElementById('sub-'+id); const ch=document.getElementById('chevron-'+id); if(sub)sub.classList.toggle('open'); if(ch)ch.classList.toggle('rotate-180'); }
+function toggleSidebar(){ const sb=document.getElementById('sidebar'); state.sidebarCollapsed=!state.sidebarCollapsed; sb.classList.toggle('collapsed'); }
+
+function renderSidebarUser(){
+    const el=document.getElementById('sidebar-user');
+    const p=state.profile;
+    el.innerHTML=`<div class="w-9 h-9 rounded-full bg-copper-400 flex items-center justify-center text-white font-bold text-sm">${p.full_name.charAt(0)}</div>
+        <div class="flex-1 min-w-0"><p class="text-sm font-semibold text-white truncate">${p.full_name}</p><p class="text-xs text-white/50">${p.roles?.name||getRoleName(p.role_id)}</p></div>`;
+}
+
+// =============================================
+// NAVEGACIÓN
+// =============================================
+async function navigateTo(sectionId) {
+    Object.values(state.charts).forEach(c=>c.destroy());
+    state.charts={};
+
+    let sec=null,sub=null;
+    MENU.forEach(item=>{
+        if(item.id===sectionId){sec=item;sub=null;}
+        if(item.subs) item.subs.forEach(s=>{if(s.id===sectionId){sec=item;sub=s;}});
+    });
+    if(!sec)return;
+    if(!hasPermission(sub?sub.perm:sec.perm)){ showToast('Sin permisos para esta sección','error');return; }
+
+    state.currentSection=sec.id;
+    state.currentSub=sub?sub.id:null;
+
+    // Recargar datos relevantes
+    showLoader(true);
+    await loadAllData();
+    showLoader(false);
+
+    document.getElementById('header-title').textContent=sub?sub.label:sec.label;
+    renderSidebar();
+    renderContent();
+}
+
+function renderContent(){
+    const ct=document.getElementById('content');
+    const sid=state.currentSub||state.currentSection;
+    ct.innerHTML='<div class="fade-in">'+getSectionHTML(sid)+'</div>';
+    afterRender(sid);
+}
+
+function getSectionHTML(sid){
+    switch(sid){
+        case 'dashboard': return dashboardHTML();
+        case 'inventory_stock': return inventoryStockHTML();
+        case 'inventory_new_movement': return inventoryNewMovementHTML();
+        case 'inventory_movements': return inventoryMovementsHTML();
+        case 'sales_new': return salesNewHTML();
+        case 'sales_history': return salesHistoryHTML();
+        case 'maintenance_fabrics': return maintenanceFabricsHTML();
+        case 'maintenance_categories': return maintenanceCategoriesHTML();
+        case 'maintenance_suppliers': return maintenanceSuppliersHTML();
+        case 'profiles_users': return profilesUsersHTML();
+        case 'profiles_roles': return profilesRolesHTML();
+        default: return '<p>Sección no encontrada</p>';
+    }
+}
+
+// =============================================
+// DASHBOARD
+// =============================================
+function dashboardHTML(){
+    const totalStock=state.fabrics.reduce((s,f)=>s+Number(f.current_stock_kg),0);
+    const totalSales=state.sales.reduce((s,v)=>s+Number(v.total),0);
+    const lowStock=state.fabrics.filter(f=>Number(f.current_stock_kg)<=Number(f.min_stock_kg));
+    const activeFabrics=state.fabrics.filter(f=>f.active).length;
+
+    return `
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+        <div class="stat-card bg-white rounded-xl p-5 border border-[var(--border)] shadow-sm hover:shadow-md transition">
+            <div class="flex items-center justify-between mb-3"><span class="text-[var(--muted)] text-sm font-medium">Stock Total</span><div class="stat-icon w-10 h-10 rounded-lg bg-copper-50 flex items-center justify-center"><i class="fa-solid fa-weight-hanging text-copper-400"></i></div></div>
+            <p class="text-2xl font-bold">${totalStock.toLocaleString('es')} <span class="text-sm text-[var(--muted)]">kg</span></p>
+            <p class="text-xs text-[var(--muted)] mt-1">${activeFabrics} telas registradas</p>
+        </div>
+        <div class="stat-card bg-white rounded-xl p-5 border border-[var(--border)] shadow-sm hover:shadow-md transition">
+            <div class="flex items-center justify-between mb-3"><span class="text-[var(--muted)] text-sm font-medium">Ventas del Mes</span><div class="stat-icon w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center"><i class="fa-solid fa-coins text-teal-500"></i></div></div>
+            <p class="text-2xl font-bold">${fmtCurrency(totalSales)}</p>
+            <p class="text-xs text-[var(--muted)] mt-1">${state.sales.length} transacciones</p>
+        </div>
+        <div class="stat-card bg-white rounded-xl p-5 border border-[var(--border)] shadow-sm hover:shadow-md transition">
+            <div class="flex items-center justify-between mb-3"><span class="text-[var(--muted)] text-sm font-medium">Alertas Stock Bajo</span><div class="stat-icon w-10 h-10 rounded-lg bg-terra-500/10 flex items-center justify-center"><i class="fa-solid fa-triangle-exclamation text-terra-500"></i></div></div>
+            <p class="text-2xl font-bold ${lowStock.length>0?'text-terra-500':''}">${lowStock.length}</p>
+            <p class="text-xs text-[var(--muted)] mt-1">Telas bajo mínimo</p>
+        </div>
+        <div class="stat-card bg-white rounded-xl p-5 border border-[var(--border)] shadow-sm hover:shadow-md transition">
+            <div class="flex items-center justify-between mb-3"><span class="text-[var(--muted)] text-sm font-medium">Movimientos</span><div class="stat-icon w-10 h-10 rounded-lg bg-copper-100 flex items-center justify-center"><i class="fa-solid fa-arrow-right-arrow-left text-copper-400"></i></div></div>
+            <p class="text-2xl font-bold">${state.movements.length}</p>
+            <p class="text-xs text-[var(--muted)] mt-1">Total registrados</p>
+        </div>
+    </div>
+    ${lowStock.length>0?`<div class="bg-terra-500/10 border border-terra-500/30 rounded-xl p-5 mb-8">
+        <h3 class="font-semibold text-terra-500 text-sm mb-3 flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation"></i> Telas con Stock Bajo</h3>
+        <div class="flex flex-wrap gap-3">${lowStock.map(f=>`<span class="badge bg-terra-500 text-white">${f.name}: ${f.current_stock_kg}kg (mín: ${f.min_stock_kg}kg)</span>`).join('')}</div>
+    </div>`:''}
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-8">
+        <div class="bg-white rounded-xl p-5 border border-[var(--border)] shadow-sm"><h3 class="font-semibold text-sm mb-4">Stock por Categoría (kg)</h3><div style="height:220px"><canvas id="chart-cat-stock"></canvas></div></div>
+        <div class="bg-white rounded-xl p-5 border border-[var(--border)] shadow-sm"><h3 class="font-semibold text-sm mb-4">Ventas por Tela</h3><div style="height:220px"><canvas id="chart-sales-trend"></canvas></div></div>
+        <div class="bg-white rounded-xl p-5 border border-[var(--border)] shadow-sm"><h3 class="font-semibold text-sm mb-4">Top Telas Vendidas</h3><div style="height:220px"><canvas id="chart-top-fabrics"></canvas></div></div>
+    </div>
+    <div class="bg-white rounded-xl p-5 border border-[var(--border)] shadow-sm">
+        <h3 class="font-semibold text-sm mb-4">Últimos Movimientos</h3>
+        <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-[var(--muted)] border-b border-[var(--border)]">
+            <th class="py-2 text-left font-medium">Fecha</th><th class="py-2 text-left font-medium">Tela</th><th class="py-2 text-left font-medium">Tipo</th><th class="py-2 text-right font-medium">Cantidad</th><th class="py-2 text-left font-medium">Referencia</th>
+        </tr></thead><tbody>${state.movements.slice(0,6).map(m=>{
+            const f=state.fabrics.find(f=>f.id===m.fabric_id);
+            const tc={entrada:'bg-teal-500/10 text-teal-600',salida:'bg-terra-500/10 text-terra-600',ajuste:'bg-copper-300/20 text-copper-600'};
+            return `<tr class="data-row border-b border-[var(--border)]/50"><td class="py-2">${fmtDate(m.date)}</td><td class="py-2">${f?f.name:'-'}</td><td class="py-2"><span class="badge ${tc[m.type]||''}">${m.type}</span></td><td class="py-2 text-right font-semibold">${m.quantity_kg} kg</td><td class="py-2 text-[var(--muted)]">${m.reference}</td></tr>`;
+        }).join('')}</tbody></table></div>
+    </div>`;
+}
+
+function afterRender(sid){ if(sid==='dashboard')initDashboardCharts(); }
+
+function initDashboardCharts(){
+    const cc=['#D4863A','#2D9B83','#C44D2B','#5B7FB5','#E8A838','#7A8B6F','#9B59B6','#E74C3C'];
+    // Stock por categoría
+    const catData=state.categories.map(c=>{const t=state.fabrics.filter(f=>f.category_id===c.id).reduce((s,f)=>s+Number(f.current_stock_kg),0);return{name:c.name,total:t};}).filter(d=>d.total>0);
+    state.charts.catStock=new Chart(document.getElementById('chart-cat-stock'),{type:'doughnut',data:{labels:catData.map(d=>d.name),datasets:[{data:catData.map(d=>d.total),backgroundColor:cc.slice(0,catData.length),borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{boxWidth:12,padding:10,font:{size:11}}}}}});
+    // Ventas por tela
+    const fabricSales={};
+    state.saleItems.forEach(si=>{fabricSales[si.fabric_name]=(fabricSales[si.fabric_name]||0)+Number(si.subtotal);});
+    const salesData=Object.entries(fabricSales).sort((a,b)=>b[1]-a[1]).slice(0,7);
+    state.charts.salesTrend=new Chart(document.getElementById('chart-sales-trend'),{type:'bar',data:{labels:salesData.map(d=>d[0]),datasets:[{data:salesData.map(d=>d[1]),backgroundColor:cc.slice(0,salesData.length),borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{callback:v=>'$'+v}},x:{grid:{display:false}}}}});
+    // Top vendidas
+    const fabricKg={};
+    state.saleItems.forEach(si=>{fabricKg[si.fabric_name]=(fabricKg[si.fabric_name]||0)+Number(si.quantity_kg);});
+    const topData=Object.entries(fabricKg).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    state.charts.topFabrics=new Chart(document.getElementById('chart-top-fabrics'),{type:'bar',data:{labels:topData.map(d=>d[0]),datasets:[{data:topData.map(d=>d[1]),backgroundColor:cc.slice(0,topData.length),borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true},y:{grid:{display:false}}}}});
+}
+
+// =============================================
+// INVENTARIO — STOCK ACTUAL
+// =============================================
+function inventoryStockHTML(){
+    return `<div class="flex flex-wrap items-center gap-4 mb-5">
+        <input id="stock-search" type="text" placeholder="Buscar tela..." class="bg-white border border-[var(--border)] rounded-lg px-4 py-2 text-sm focus:border-copper-400 focus:outline-none w-56" oninput="filterStockTable()">
+        <select id="stock-cat-filter" class="bg-white border border-[var(--border)] rounded-lg px-3 py-2 text-sm focus:border-copper-400 focus:outline-none" onchange="filterStockTable()">
+            <option value="">Todas las categorías</option>${state.categories.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}
+        </select></div>
+    <div class="bg-white rounded-xl border border-[var(--border)] shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-copper-50 border-b border-[var(--border)]">
+        <th class="py-3 px-4 text-left font-semibold">Tela</th><th class="py-3 px-4 text-left font-semibold">Categoría</th><th class="py-3 px-4 text-left font-semibold">Color</th><th class="py-3 px-4 text-left font-semibold">Composición</th><th class="py-3 px-4 text-right font-semibold">Precio/kg</th><th class="py-3 px-4 text-right font-semibold">Stock (kg)</th><th class="py-3 px-4 text-right font-semibold">Mínimo</th><th class="py-3 px-4 text-center font-semibold">Estado</th>
+    </tr></thead><tbody id="stock-table-body">
+    ${state.fabrics.filter(f=>f.active).map(f=>{const isLow=Number(f.current_stock_kg)<=Number(f.min_stock_kg); return `<tr class="data-row border-b border-[var(--border)]/50" data-name="${f.name.toLowerCase()}" data-cat="${f.category_id}">
+        <td class="py-3 px-4 font-medium">${f.name}</td><td class="py-3 px-4">${getCatName(f.category_id)}</td><td class="py-3 px-4">${f.color}</td><td class="py-3 px-4 text-[var(--muted)]">${f.composition}</td><td class="py-3 px-4 text-right font-semibold">${fmtCurrency(f.price_per_kg)}</td><td class="py-3 px-4 text-right font-bold ${isLow?'text-terra-500':''}">${f.current_stock_kg}</td><td class="py-3 px-4 text-right text-[var(--muted)]">${f.min_stock_kg}</td><td class="py-3 px-4 text-center">${isLow?'<span class="badge bg-terra-500 text-white">Bajo</span>':'<span class="badge bg-teal-500/10 text-teal-600">Normal</span>'}</td>
+    </tr>`;}).join('')}</tbody></table></div></div>`;
+}
+function filterStockTable(){const s=(document.getElementById('stock-search')?.value||'').toLowerCase();const c=document.getElementById('stock-cat-filter')?.value||'';document.querySelectorAll('#stock-table-body tr').forEach(r=>{r.style.display=(r.dataset.name.includes(s)&&(!c||r.dataset.cat===c))?'':'none';});}
+
+// =============================================
+// INVENTARIO — REGISTRAR MOVIMIENTO
+// =============================================
+function inventoryNewMovementHTML(){
+    return `<div class="max-w-2xl"><div class="bg-white rounded-xl border border-[var(--border)] shadow-sm p-6">
+        <h3 class="font-display text-lg mb-5">Registrar Movimiento de Inventario</h3>
+        <div class="space-y-4">
+            <div><label class="text-sm font-medium mb-1 block">Tela</label><select id="mv-fabric" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none">
+                <option value="">Seleccionar tela...</option>${state.fabrics.filter(f=>f.active).map(f=>`<option value="${f.id}">${f.name} — Stock: ${f.current_stock_kg}kg</option>`).join('')}
+            </select></div>
+            <div class="grid grid-cols-2 gap-4">
+                <div><label class="text-sm font-medium mb-1 block">Tipo</label><select id="mv-type" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none">
+                    <option value="entrada">Entrada (Compra)</option><option value="salida">Salida (Venta/Transferencia)</option><option value="ajuste">Ajuste (Corrección/Merma)</option>
+                </select></div>
+                <div><label class="text-sm font-medium mb-1 block">Cantidad (kg)</label><input id="mv-qty" type="number" step="0.1" min="0.1" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none" placeholder="Ej: 50"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div><label class="text-sm font-medium mb-1 block">Fecha</label><input id="mv-date" type="date" value="${todayStr()}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div>
+                <div><label class="text-sm font-medium mb-1 block">Referencia</label><input id="mv-ref" type="text" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none" placeholder="Ej: OC-006"></div>
+            </div>
+            <div><label class="text-sm font-medium mb-1 block">Motivo</label><input id="mv-reason" type="text" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none" placeholder="Descripción"></div>
+            <div class="pt-3 flex gap-3">
+                <button onclick="saveMovement()" class="bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-6 py-2.5 transition transform hover:scale-[1.02]"><i class="fa-solid fa-floppy-disk mr-2"></i>Registrar</button>
+                <button onclick="navigateTo('inventory_movements')" class="bg-white border border-[var(--border)] text-[var(--muted)] rounded-lg px-5 py-2.5 transition">Ver Historial</button>
+            </div>
+        </div></div></div>`;
+}
+
+async function saveMovement(){
+    const fabricId=+document.getElementById('mv-fabric').value;
+    const type=document.getElementById('mv-type').value;
+    const qty=parseFloat(document.getElementById('mv-qty').value);
+    const date=document.getElementById('mv-date').value;
+    const ref=document.getElementById('mv-ref').value.trim();
+    const reason=document.getElementById('mv-reason').value.trim();
+    if(!fabricId){showToast('Seleccione una tela','error');return;}
+    if(!qty||qty<=0){showToast('Cantidad inválida','error');return;}
+    if(!reason){showToast('Ingrese motivo','error');return;}
+
+    const fabric=state.fabrics.find(f=>f.id===fabricId);
+    if(type==='salida'&&qty>Number(fabric.current_stock_kg)){showToast(`Stock insuficiente: ${fabric.current_stock_kg}kg`,'error');return;}
+
+    // Insertar movimiento
+    const {error:e1}=await supabaseClient.from('movements').insert([{fabric_id:fabricId,type,quantity_kg:type==='ajuste'?-qty:qty,date,reason,reference:ref||'-',user_id:state.currentUser.id}]);
+    if(e1){showToast('Error: '+e1.message,'error');return;}
+
+    // Actualizar stock
+    let newStock=Number(fabric.current_stock_kg);
+    if(type==='entrada') newStock+=qty;
+    else if(type==='salida') newStock-=qty;
+    else if(type==='ajuste') newStock=Math.max(0,newStock-qty);
+
+    const {error:e2}=await supabaseClient.from('fabrics').update({current_stock_kg:newStock}).eq('id',fabricId);
+    if(e2){showToast('Error actualizando stock','error');return;}
+
+    showToast(`${type} de ${qty}kg registrada para ${fabric.name}`,type==='entrada'?'success':'warning');
+    navigateTo('inventory_new_movement');
+}
+
+// =============================================
+// INVENTARIO — HISTORIAL
+// =============================================
+function inventoryMovementsHTML(){
+    const tc={entrada:'bg-teal-500/10 text-teal-600',salida:'bg-terra-500/10 text-terra-600',ajuste:'bg-copper-300/20 text-copper-600'};
+    return `<div class="flex flex-wrap items-center gap-4 mb-5">
+        <input id="mvh-search" type="text" placeholder="Buscar tela o referencia..." class="bg-white border border-[var(--border)] rounded-lg px-4 py-2 text-sm focus:border-copper-400 focus:outline-none w-56" oninput="filterMvTable()">
+        <select id="mvh-type-filter" class="bg-white border border-[var(--border)] rounded-lg px-3 py-2 text-sm focus:border-copper-400 focus:outline-none" onchange="filterMvTable()"><option value="">Todos</option><option value="entrada">Entrada</option><option value="salida">Salida</option><option value="ajuste">Ajuste</option></select></div>
+    <div class="bg-white rounded-xl border border-[var(--border)] shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-copper-50 border-b border-[var(--border)]">
+        <th class="py-3 px-4 text-left font-semibold">Fecha</th><th class="py-3 px-4 text-left font-semibold">Tela</th><th class="py-3 px-4 text-left font-semibold">Tipo</th><th class="py-3 px-4 text-right font-semibold">Kg</th><th class="py-3 px-4 text-left font-semibold">Ref.</th><th class="py-3 px-4 text-left font-semibold">Motivo</th><th class="py-3 px-4 text-left font-semibold">Usuario</th>
+    </tr></thead><tbody id="mv-table-body">${state.movements.map(m=>{const f=state.fabrics.find(f=>f.id===m.fabric_id); return `<tr class="data-row border-b border-[var(--border)]/50" data-name="${(f?f.name:'').toLowerCase()}" data-ref="${m.reference.toLowerCase()}" data-type="${m.type}">
+        <td class="py-3 px-4">${fmtDate(m.date)}</td><td class="py-3 px-4 font-medium">${f?f.name:'-'}</td><td class="py-3 px-4"><span class="badge ${tc[m.type]||''}">${m.type}</span></td><td class="py-3 px-4 text-right font-bold ${Number(m.quantity_kg)<0?'text-terra-500':'text-teal-600'}">${m.quantity_kg}</td><td class="py-3 px-4 text-[var(--muted)]">${m.reference}</td><td class="py-3 px-4">${m.reason}</td><td class="py-3 px-4 text-[var(--muted)]">${m.user_id?getUserName(m.user_id):'-'}</td>
+    </tr>`;}).join('')}</tbody></table></div></div>`;
+}
+function filterMvTable(){const s=(document.getElementById('mvh-search')?.value||'').toLowerCase();const t=document.getElementById('mvh-type-filter')?.value||'';document.querySelectorAll('#mv-table-body tr').forEach(r=>{r.style.display=(r.dataset.name.includes(s)||r.dataset.ref.includes(s))&&(!t||r.dataset.type===t)?'':'none';});}
+
+// =============================================
+// VENTAS — NUEVA VENTA
+// =============================================
+function salesNewHTML(){
+    state.cart=[];
+    return `<div class="grid grid-cols-1 lg:grid-cols-5 gap-5">
+        <div class="lg:col-span-2 bg-white rounded-xl border border-[var(--border)] shadow-sm p-6">
+            <h3 class="font-display text-lg mb-5">Agregar Tela</h3><div class="space-y-4">
+                <div><label class="text-sm font-medium mb-1 block">Tela</label><select id="sale-fabric" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none" onchange="updateSalePrice()">
+                    <option value="">Seleccionar...</option>${state.fabrics.filter(f=>f.active&&Number(f.current_stock_kg)>0).map(f=>`<option value="${f.id}" data-price="${f.price_per_kg}" data-stock="${f.current_stock_kg}">${f.name} — ${fmtCurrency(f.price_per_kg)}/kg (${f.current_stock_kg}kg)</option>`).join('')}</select></div>
+                <div><label class="text-sm font-medium mb-1 block">Cantidad (kg)</label><input id="sale-qty" type="number" step="0.1" min="0.1" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"><p id="sale-stock-info" class="text-xs text-[var(--muted)] mt-1"></p></div>
+                <div><label class="text-sm font-medium mb-1 block">Precio/kg</label><input id="sale-price" type="number" step="0.01" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm bg-cream/50" readonly></div>
+                <button onclick="addToCart()" class="w-full bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-4 py-2.5 transition"><i class="fa-solid fa-plus mr-2"></i>Agregar</button>
+            </div><hr class="my-5 border-[var(--border)]"><h3 class="font-display text-lg mb-4">Cliente</h3>
+            <div><label class="text-sm font-medium mb-1 block">Nombre</label><input id="sale-customer" type="text" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none" placeholder="Nombre o empresa"></div>
+        </div>
+        <div class="lg:col-span-3 bg-white rounded-xl border border-[var(--border)] shadow-sm p-6">
+            <h3 class="font-display text-lg mb-4 flex items-center gap-2"><i class="fa-solid fa-cart-shopping text-copper-400"></i> Carrito</h3>
+            <div id="sale-cart-content"><p class="text-[var(--muted)] text-sm py-8 text-center">Sin items</p></div>
+            <div id="sale-cart-footer" class="hidden mt-4 pt-4 border-t border-[var(--border)]">
+                <div class="flex items-center justify-between mb-4"><span class="font-display text-xl font-bold">Total:</span><span id="sale-total" class="font-display text-2xl font-bold text-copper-400">$0,00</span></div>
+                <button onclick="confirmSale()" class="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-lg px-6 py-3 transition text-lg"><i class="fa-solid fa-check-circle mr-2"></i>Confirmar Venta</button>
+            </div>
+        </div></div>`;
+}
+function updateSalePrice(){const sel=document.getElementById('sale-fabric');const opt=sel.options[sel.selectedIndex];if(opt&&opt.value){document.getElementById('sale-price').value=opt.dataset.price;document.getElementById('sale-stock-info').textContent='Stock: '+opt.dataset.stock+' kg';}else{document.getElementById('sale-price').value='';document.getElementById('sale-stock-info').textContent='';}}
+function addToCart(){const fabricId=+document.getElementById('sale-fabric').value;const qty=parseFloat(document.getElementById('sale-qty').value);const price=parseFloat(document.getElementById('sale-price').value);if(!fabricId||!qty||qty<=0){showToast('Seleccione tela y cantidad','error');return;}const fabric=state.fabrics.find(f=>f.id===fabricId);const already=state.cart.filter(i=>i.fabricId===fabricId).reduce((s,i)=>s+i.quantityKg,0);if(qty+already>Number(fabric.current_stock_kg)){showToast(`Stock insuficiente`,'error');return;}const existing=state.cart.find(i=>i.fabricId===fabricId);if(existing){existing.quantityKg+=qty;existing.subtotal=existing.quantityKg*existing.pricePerKg;}else{state.cart.push({fabricId,quantityKg:qty,pricePerKg:price,subtotal:qty*price,fabricName:fabric.name});}showToast(`${qty}kg agregado`,'success');renderCart();document.getElementById('sale-qty').value='';}
+function renderCart(){const ct=document.getElementById('sale-cart-content');const ft=document.getElementById('sale-cart-footer');if(!state.cart.length){ct.innerHTML='<p class="text-[var(--muted)] text-sm py-8 text-center">Sin items</p>';ft.classList.add('hidden');return;}ft.classList.remove('hidden');const total=state.cart.reduce((s,i)=>s+i.subtotal,0);ct.innerHTML=`<table class="w-full text-sm"><thead><tr class="text-[var(--muted)] border-b border-[var(--border)]"><th class="py-2 text-left">Tela</th><th class="py-2 text-right">kg</th><th class="py-2 text-right">$/kg</th><th class="py-2 text-right">Subtotal</th><th class="py-2"></th></tr></thead><tbody>${state.cart.map((i,idx)=>`<tr class="data-row border-b border-[var(--border)]/50"><td class="py-2 font-medium">${i.fabricName}</td><td class="py-2 text-right">${i.quantityKg}</td><td class="py-2 text-right">${fmtCurrency(i.pricePerKg)}</td><td class="py-2 text-right font-semibold">${fmtCurrency(i.subtotal)}</td><td class="py-2 text-center"><button onclick="state.cart.splice(${idx},1);renderCart()" class="text-terra-500 hover:text-terra-600"><i class="fa-solid fa-trash-can"></i></button></td></tr>`).join('')}</tbody></table>`;document.getElementById('sale-total').textContent=fmtCurrency(total);}
+
+async function confirmSale(){
+    const customer=document.getElementById('sale-customer').value.trim();
+    if(!customer){showToast('Ingrese cliente','error');return;}
+    if(!state.cart.length){showToast('Carrito vacío','error');return;}
+    const total=state.cart.reduce((s,i)=>s+i.subtotal,0);
+
+    // 1. Crear venta
+    const {data:sale,error:e1}=await supabaseClient.from('sales').insert([{date:todayStr(),customer,total,user_id:state.currentUser.id}]).select().single();
+    if(e1){showToast('Error creando venta: '+e1.message,'error');return;}
+
+    // 2. Crear items
+    const items=state.cart.map(i=>({sale_id:sale.id,fabric_id:i.fabricId,quantity_kg:i.quantityKg,price_per_kg:i.pricePerKg,subtotal:i.subtotal,fabric_name:i.fabricName}));
+    const {error:e2}=await supabaseClient.from('sale_items').insert(items);
+    if(e2){showToast('Error guardando items','error');return;}
+
+    // 3. Descontar stock y crear movimientos
+    for(const item of state.cart){
+        const fabric=state.fabrics.find(f=>f.id===item.fabricId);
+        const newStock=Number(fabric.current_stock_kg)-item.quantityKg;
+        await supabaseClient.from('fabrics').update({current_stock_kg:newStock}).eq('id',item.fabricId);
+        await supabaseClient.from('movements').insert([{fabric_id:item.fabricId,type:'salida',quantity_kg:item.quantityKg,date:todayStr(),reason:`Venta a ${customer}`,reference:`V-${sale.id}`,user_id:state.currentUser.id}]);
+    }
+
+    state.cart=[];
+    showToast(`Venta ${fmtCurrency(total)} registrada`,`success`);
+    navigateTo('sales_new');
+}
+
+// =============================================
+// VENTAS — HISTORIAL
+// =============================================
+function salesHistoryHTML(){
+    return `<div class="flex flex-wrap items-center gap-4 mb-5">
+        <input id="sh-search" type="text" placeholder="Buscar cliente..." class="bg-white border border-[var(--border)] rounded-lg px-4 py-2 text-sm focus:border-copper-400 focus:outline-none w-56" oninput="filterSalesTable()">
+    </div><div class="bg-white rounded-xl border border-[var(--border)] shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-copper-50 border-b border-[var(--border)]">
+        <th class="py-3 px-4 text-left font-semibold">ID</th><th class="py-3 px-4 text-left font-semibold">Fecha</th><th class="py-3 px-4 text-left font-semibold">Cliente</th><th class="py-3 px-4 text-right font-semibold">Total</th><th class="py-3 px-4 text-left font-semibold">Vendedor</th><th class="py-3 px-4 text-center font-semibold">Detalle</th>
+    </tr></thead><tbody id="sh-table-body">${state.sales.map(s=>`<tr class="data-row border-b border-[var(--border)]/50" data-customer="${s.customer.toLowerCase()}">
+        <td class="py-3 px-4 font-medium text-copper-400">V-${s.id}</td><td class="py-3 px-4">${fmtDate(s.date)}</td><td class="py-3 px-4 font-medium">${s.customer}</td><td class="py-3 px-4 text-right font-bold text-teal-600">${fmtCurrency(s.total)}</td><td class="py-3 px-4 text-[var(--muted)]">${s.user_id?getUserName(s.user_id):'-'}</td><td class="py-3 px-4 text-center"><button onclick="viewSaleDetail(${s.id})" class="text-copper-400 hover:text-copper-500"><i class="fa-solid fa-eye"></i></button></td>
+    </tr>`).join('')}</tbody></table></div></div>`;
+}
+function filterSalesTable(){const s=(document.getElementById('sh-search')?.value||'').toLowerCase();document.querySelectorAll('#sh-table-body tr').forEach(r=>{r.style.display=r.dataset.customer.includes(s)?'':'none';});}
+
+async function viewSaleDetail(saleId){
+    const s=state.sales.find(s=>s.id===saleId);
+    const items=state.saleItems.filter(i=>i.sale_id===saleId);
+    showModal(`<div class="p-6">
+        <div class="flex items-center justify-between mb-5"><h3 class="font-display text-lg">Venta V-${s.id}</h3><button onclick="closeModal()" class="text-[var(--muted)] hover:text-[var(--fg)]"><i class="fa-solid fa-times text-lg"></i></button></div>
+        <div class="grid grid-cols-2 gap-3 mb-4 text-sm"><div><span class="text-[var(--muted)]">Fecha:</span> <strong>${fmtDate(s.date)}</strong></div><div><span class="text-[var(--muted)]">Cliente:</span> <strong>${s.customer}</strong></div><div><span class="text-[var(--muted)]">Total:</span> <strong class="text-teal-600">${fmtCurrency(s.total)}</strong></div></div>
+        <table class="w-full text-sm mt-3"><thead><tr class="border-b border-[var(--border)] text-[var(--muted)]"><th class="py-2 text-left">Tela</th><th class="py-2 text-right">kg</th><th class="py-2 text-right">$/kg</th><th class="py-2 text-right">Subtotal</th></tr></thead><tbody>${items.map(i=>`<tr class="border-b border-[var(--border)]/50"><td class="py-2 font-medium">${i.fabric_name}</td><td class="py-2 text-right">${i.quantity_kg}</td><td class="py-2 text-right">${fmtCurrency(i.price_per_kg)}</td><td class="py-2 text-right font-semibold">${fmtCurrency(i.subtotal)}</td></tr>`).join('')}</tbody></table></div>`);
+}
+
+// =============================================
+// MANTENIMIENTO — TELAS
+// =============================================
+function maintenanceFabricsHTML(){
+    return `<div class="flex items-center justify-between gap-4 mb-5">
+        <input id="mf-search" type="text" placeholder="Buscar..." class="bg-white border border-[var(--border)] rounded-lg px-4 py-2 text-sm focus:border-copper-400 focus:outline-none w-56" oninput="filterFabricsTable()">
+        <button onclick="openFabricForm()" class="bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-5 py-2.5 transition"><i class="fa-solid fa-plus mr-2"></i>Nueva Tela</button>
+    </div><div class="bg-white rounded-xl border border-[var(--border)] shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-copper-50 border-b border-[var(--border)]">
+        <th class="py-3 px-4 text-left font-semibold">Nombre</th><th class="py-3 px-4 text-left font-semibold">Categoría</th><th class="py-3 px-4 text-left font-semibold">Color</th><th class="py-3 px-4 text-right font-semibold">$/kg</th><th class="py-3 px-4 text-right font-semibold">Stock</th><th class="py-3 px-4 text-center font-semibold">Acciones</th>
+    </tr></thead><tbody id="mf-table-body">${state.fabrics.map(f=>`<tr class="data-row border-b border-[var(--border)]/50 ${f.active?'':'opacity-50'}" data-name="${f.name.toLowerCase()}">
+        <td class="py-3 px-4 font-medium">${f.name}</td><td class="py-3 px-4">${getCatName(f.category_id)}</td><td class="py-3 px-4">${f.color}</td><td class="py-3 px-4 text-right font-semibold">${fmtCurrency(f.price_per_kg)}</td><td class="py-3 px-4 text-right">${f.current_stock_kg} kg</td>
+        <td class="py-3 px-4 text-center flex items-center justify-center gap-2"><button onclick="openFabricForm(${f.id})" class="text-copper-400 hover:text-copper-500"><i class="fa-solid fa-pen-to-square"></i></button><button onclick="toggleFabricActive(${f.id})" class="${f.active?'text-teal-500':'text-[var(--muted)]'}"><i class="fa-solid ${f.active?'fa-toggle-on':'fa-toggle-off'}"></i></button><button onclick="deleteFabric(${f.id})" class="text-terra-500 hover:text-terra-600"><i class="fa-solid fa-trash-can"></i></button></td>
+    </tr>`).join('')}</tbody></table></div></div>`;
+}
+function filterFabricsTable(){const s=(document.getElementById('mf-search')?.value||'').toLowerCase();document.querySelectorAll('#mf-table-body tr').forEach(r=>{r.style.display=r.dataset.name.includes(s)?'':'none';});}
+
+function openFabricForm(editId=null){
+    const f=editId?state.fabrics.find(f=>f.id===editId):null;
+    showModal(`<div class="p-6"><div class="flex items-center justify-between mb-5"><h3 class="font-display text-lg">${f?'Editar Tela':'Nueva Tela'}</h3><button onclick="closeModal()" class="text-[var(--muted)] hover:text-[var(--fg)]"><i class="fa-solid fa-times text-lg"></i></button></div>
+    <div class="space-y-4">
+        <div><label class="text-sm font-medium mb-1 block">Nombre</label><input id="ff-name" type="text" value="${f?f.name:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div>
+        <div class="grid grid-cols-2 gap-4">
+            <div><label class="text-sm font-medium mb-1 block">Categoría</label><select id="ff-cat" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none">${state.categories.map(c=>`<option value="${c.id}" ${f&&f.category_id===c.id?'selected':''}>${c.name}</option>`).join('')}</select></div>
+            <div><label class="text-sm font-medium mb-1 block">Proveedor</label><select id="ff-sup" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none">${state.suppliers.filter(s=>s.active).map(s=>`<option value="${s.id}" ${f&&f.supplier_id===s.id?'selected':''}>${s.name}</option>`).join('')}</select></div>
+        </div>
+        <div class="grid grid-cols-2 gap-4"><div><label class="text-sm font-medium mb-1 block">Color</label><input id="ff-color" type="text" value="${f?f.color:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div><div><label class="text-sm font-medium mb-1 block">Composición</label><input id="ff-comp" type="text" value="${f?f.composition:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div></div>
+        <div class="grid grid-cols-3 gap-4"><div><label class="text-sm font-medium mb-1 block">$/kg</label><input id="ff-price" type="number" step="0.01" value="${f?f.price_per_kg:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div><div><label class="text-sm font-medium mb-1 block">Stock (kg)</label><input id="ff-stock" type="number" step="0.1" value="${f?f.current_stock_kg:'0'}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div><div><label class="text-sm font-medium mb-1 block">Mínimo (kg)</label><input id="ff-min" type="number" step="0.1" value="${f?f.min_stock_kg:'10'}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div></div>
+        <div class="flex gap-3 pt-3"><button onclick="saveFabric(${editId||'null'})" class="bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-6 py-2.5 transition"><i class="fa-solid fa-floppy-disk mr-2"></i>Guardar</button><button onclick="closeModal()" class="bg-white border border-[var(--border)] text-[var(--muted)] rounded-lg px-5 py-2.5 transition">Cancelar</button></div>
+    </div></div>`);
+}
+
+async function saveFabric(editId){
+    const d={name:document.getElementById('ff-name').value.trim(),category_id:+document.getElementById('ff-cat').value,supplier_id:+document.getElementById('ff-sup').value,color:document.getElementById('ff-color').value.trim(),composition:document.getElementById('ff-comp').value.trim(),price_per_kg:parseFloat(document.getElementById('ff-price').value),current_stock_kg:parseFloat(document.getElementById('ff-stock').value),min_stock_kg:parseFloat(document.getElementById('ff-min').value)};
+    if(!d.name){showToast('Nombre requerido','error');return;}
+    if(editId){const{error}=await supabaseClient.from('fabrics').update(d).eq('id',editId);if(error){showToast(error.message,'error');return;}showToast('Tela actualizada','success');}
+    else{d.active=true;const{error}=await supabaseClient.from('fabrics').insert([d]);if(error){showToast(error.message,'error');return;}showToast('Tela creada','success');}
+    closeModal();navigateTo('maintenance_fabrics');
+}
+
+async function toggleFabricActive(id){const f=state.fabrics.find(f=>f.id===id);const{error}=await supabaseClient.from('fabrics').update({active:!f.active}).eq('id',id);if(error){showToast(error.message,'error');return;}showToast(f.active?'Desactivada':'Activada',f.active?'warning':'success');navigateTo('maintenance_fabrics');}
+
+function deleteFabric(id){showModal(`<div class="p-6 text-center"><i class="fa-solid fa-triangle-exclamation text-terra-500 text-4xl mb-4"></i><h3 class="font-display text-lg mb-2">Eliminar Tela?</h3><p class="text-[var(--muted)] text-sm mb-5">Se perderán todos los datos asociados.</p><div class="flex gap-3 justify-center"><button onclick="doDeleteFabric(${id})" class="bg-terra-500 hover:bg-terra-600 text-white font-semibold rounded-lg px-5 py-2.5 transition">Eliminar</button><button onclick="closeModal()" class="bg-white border border-[var(--border)] text-[var(--muted)] rounded-lg px-5 py-2.5 transition">Cancelar</button></div></div>`);}
+async function doDeleteFabric(id){const{error}=await supabaseClient.from('fabrics').delete().eq('id',id);if(error){showToast(error.message,'error');return;}closeModal();showToast('Tela eliminada','success');navigateTo('maintenance_fabrics');}
+
+// =============================================
+// MANTENIMIENTO — CATEGORÍAS
+// =============================================
+function maintenanceCategoriesHTML(){
+    return `<div class="flex items-center justify-between mb-5"><h3 class="text-sm text-[var(--muted)]">${state.categories.length} categorías</h3><button onclick="openCategoryForm()" class="bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-5 py-2.5 transition"><i class="fa-solid fa-plus mr-2"></i>Nueva</button></div>
+    <div class="bg-white rounded-xl border border-[var(--border)] shadow-sm overflow-hidden"><table class="w-full text-sm"><thead><tr class="bg-copper-50 border-b border-[var(--border)]"><th class="py-3 px-4 text-left font-semibold">Nombre</th><th class="py-3 px-4 text-left font-semibold">Descripción</th><th class="py-3 px-4 text-right font-semibold">Telas</th><th class="py-3 px-4 text-center font-semibold">Acciones</th></tr></thead><tbody>${state.categories.map(c=>{const cnt=state.fabrics.filter(f=>f.category_id===c.id).length;return `<tr class="data-row border-b border-[var(--border)]/50"><td class="py-3 px-4 font-medium">${c.name}</td><td class="py-3 px-4 text-[var(--muted)]">${c.description}</td><td class="py-3 px-4 text-right">${cnt}</td><td class="py-3 px-4 text-center flex items-center justify-center gap-2"><button onclick="openCategoryForm(${c.id})" class="text-copper-400 hover:text-copper-500"><i class="fa-solid fa-pen-to-square"></i></button><button onclick="deleteCategory(${c.id})" class="text-terra-500 hover:text-terra-600"><i class="fa-solid fa-trash-can"></i></button></td></tr>`;}).join('')}</tbody></table></div>`;
+}
+function openCategoryForm(editId=null){const c=editId?state.categories.find(c=>c.id===editId):null;showModal(`<div class="p-6"><div class="flex items-center justify-between mb-5"><h3 class="font-display text-lg">${c?'Editar':'Nueva'} Categoría</h3><button onclick="closeModal()" class="text-[var(--muted)] hover:text-[var(--fg)]"><i class="fa-solid fa-times text-lg"></i></button></div><div class="space-y-4"><div><label class="text-sm font-medium mb-1 block">Nombre</label><input id="cf-name" type="text" value="${c?c.name:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div><div><label class="text-sm font-medium mb-1 block">Descripción</label><input id="cf-desc" type="text" value="${c?c.description:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div><div class="flex gap-3 pt-2"><button onclick="saveCategory(${editId||'null'})" class="bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-6 py-2.5 transition"><i class="fa-solid fa-floppy-disk mr-2"></i>Guardar</button><button onclick="closeModal()" class="bg-white border border-[var(--border)] text-[var(--muted)] rounded-lg px-5 py-2.5 transition">Cancelar</button></div></div></div>`);}
+async function saveCategory(editId){const d={name:document.getElementById('cf-name').value.trim(),description:document.getElementById('cf-desc').value.trim()};if(!d.name){showToast('Nombre requerido','error');return;}if(editId){const{error}=await supabaseClient.from('categories').update(d).eq('id',editId);if(error){showToast(error.message,'error');return;}showToast('Categoría actualizada','success');}else{const{error}=await supabaseClient.from('categories').insert([d]);if(error){showToast(error.message,'error');return;}showToast('Categoría creada','success');}closeModal();navigateTo('maintenance_categories');}
+function deleteCategory(id){const cnt=state.fabrics.filter(f=>f.category_id===id).length;if(cnt>0){showToast(`Tiene ${cnt} telas asociadas`,'error');return;}showModal(`<div class="p-6 text-center"><i class="fa-solid fa-triangle-exclamation text-terra-500 text-4xl mb-4"></i><h3 class="font-display text-lg mb-2">Eliminar Categoría?</h3><div class="flex gap-3 justify-center"><button onclick="doDeleteCat(${id})" class="bg-terra-500 hover:bg-terra-600 text-white font-semibold rounded-lg px-5 py-2.5">Eliminar</button><button onclick="closeModal()" class="bg-white border border-[var(--border)] text-[var(--muted)] rounded-lg px-5 py-2.5">Cancelar</button></div></div>`);}
+async function doDeleteCat(id){await supabaseClient.from('categories').delete().eq('id',id);closeModal();showToast('Eliminada','success');navigateTo('maintenance_categories');}
+
+// =============================================
+// MANTENIMIENTO — PROVEEDORES
+// =============================================
+function maintenanceSuppliersHTML(){
+    return `<div class="flex items-center justify-between mb-5"><h3 class="text-sm text-[var(--muted)]">${state.suppliers.length} proveedores</h3><button onclick="openSupplierForm()" class="bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-5 py-2.5 transition"><i class="fa-solid fa-plus mr-2"></i>Nuevo</button></div>
+    <div class="bg-white rounded-xl border border-[var(--border)] shadow-sm overflow-hidden"><table class="w-full text-sm"><thead><tr class="bg-copper-50 border-b border-[var(--border)]"><th class="py-3 px-4 text-left font-semibold">Nombre</th><th class="py-3 px-4 text-left font-semibold">Contacto</th><th class="py-3 px-4 text-left font-semibold">Teléfono</th><th class="py-3 px-4 text-left font-semibold">Email</th><th class="py-3 px-4 text-center font-semibold">Acciones</th></tr></thead><tbody>${state.suppliers.map(s=>`<tr class="data-row border-b border-[var(--border)]/50 ${s.active?'':'opacity-50'}"><td class="py-3 px-4 font-medium">${s.name}</td><td class="py-3 px-4">${s.contact}</td><td class="py-3 px-4 text-[var(--muted)]">${s.phone}</td><td class="py-3 px-4 text-[var(--muted)]">${s.email}</td><td class="py-3 px-4 text-center flex items-center justify-center gap-2"><button onclick="openSupplierForm(${s.id})" class="text-copper-400 hover:text-copper-500"><i class="fa-solid fa-pen-to-square"></i></button><button onclick="toggleSupplierActive(${s.id})" class="${s.active?'text-teal-500':'text-[var(--muted)]'}"><i class="fa-solid ${s.active?'fa-toggle-on':'fa-toggle-off'}"></i></button><button onclick="deleteSupplier(${s.id})" class="text-terra-500 hover:text-terra-600"><i class="fa-solid fa-trash-can"></i></button></td></tr>`).join('')}</tbody></table></div>`;
+}
+function openSupplierForm(editId=null){const s=editId?state.suppliers.find(s=>s.id===editId):null;showModal(`<div class="p-6"><div class="flex items-center justify-between mb-5"><h3 class="font-display text-lg">${s?'Editar':'Nuevo'} Proveedor</h3><button onclick="closeModal()" class="text-[var(--muted)] hover:text-[var(--fg)]"><i class="fa-solid fa-times text-lg"></i></button></div><div class="space-y-4"><div><label class="text-sm font-medium mb-1 block">Nombre</label><input id="sf-name" type="text" value="${s?s.name:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div><div><label class="text-sm font-medium mb-1 block">Contacto</label><input id="sf-contact" type="text" value="${s?s.contact:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div><div class="grid grid-cols-2 gap-4"><div><label class="text-sm font-medium mb-1 block">Teléfono</label><input id="sf-phone" type="text" value="${s?s.phone:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div><div><label class="text-sm font-medium mb-1 block">Email</label><input id="sf-email" type="email" value="${s?s.email:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div></div><div class="flex gap-3 pt-2"><button onclick="saveSupplier(${editId||'null'})" class="bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-6 py-2.5 transition"><i class="fa-solid fa-floppy-disk mr-2"></i>Guardar</button><button onclick="closeModal()" class="bg-white border border-[var(--border)] text-[var(--muted)] rounded-lg px-5 py-2.5 transition">Cancelar</button></div></div></div>`);}
+async function saveSupplier(editId){const d={name:document.getElementById('sf-name').value.trim(),contact:document.getElementById('sf-contact').value.trim(),phone:document.getElementById('sf-phone').value.trim(),email:document.getElementById('sf-email').value.trim()};if(!d.name){showToast('Nombre requerido','error');return;}if(editId){const{error}=await supabaseClient.from('suppliers').update(d).eq('id',editId);if(error){showToast(error.message,'error');return;}showToast('Proveedor actualizado','success');}else{d.active=true;const{error}=await supabaseClient.from('suppliers').insert([d]);if(error){showToast(error.message,'error');return;}showToast('Proveedor creado','success');}closeModal();navigateTo('maintenance_suppliers');}
+async function toggleSupplierActive(id){const s=state.suppliers.find(s=>s.id===id);await supabaseClient.from('suppliers').update({active:!s.active}).eq('id',id);showToast(s.active?'Desactivado':'Activado',s.active?'warning':'success');navigateTo('maintenance_suppliers');}
+function deleteSupplier(id){showModal(`<div class="p-6 text-center"><i class="fa-solid fa-triangle-exclamation text-terra-500 text-4xl mb-4"></i><h3 class="font-display text-lg mb-2">Eliminar Proveedor?</h3><div class="flex gap-3 justify-center"><button onclick="doDeleteSup(${id})" class="bg-terra-500 hover:bg-terra-600 text-white font-semibold rounded-lg px-5 py-2.5">Eliminar</button><button onclick="closeModal()" class="bg-white border border-[var(--border)] text-[var(--muted)] rounded-lg px-5 py-2.5">Cancelar</button></div></div>`);}
+async function doDeleteSup(id){await supabaseClient.from('suppliers').delete().eq('id',id);closeModal();showToast('Eliminado','success');navigateTo('maintenance_suppliers');}
+
+// =============================================
+// PERFILES — USUARIOS
+// =============================================
+function profilesUsersHTML(){
+    return `<div class="flex items-center justify-between mb-5"><h3 class="text-sm text-[var(--muted)]">${state.profiles.length} usuarios</h3><button onclick="openUserForm()" class="bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-5 py-2.5 transition"><i class="fa-solid fa-user-plus mr-2"></i>Nuevo Usuario</button></div>
+    <div class="bg-white rounded-xl border border-[var(--border)] shadow-sm overflow-hidden"><table class="w-full text-sm"><thead><tr class="bg-copper-50 border-b border-[var(--border)]"><th class="py-3 px-4 text-left font-semibold">Usuario</th><th class="py-3 px-4 text-left font-semibold">Nombre</th><th class="py-3 px-4 text-left font-semibold">Email</th><th class="py-3 px-4 text-left font-semibold">Rol</th><th class="py-3 px-4 text-center font-semibold">Estado</th><th class="py-3 px-4 text-center font-semibold">Acciones</th></tr></thead><tbody>${state.profiles.map(p=>`<tr class="data-row border-b border-[var(--border)]/50 ${p.active?'':'opacity-50'}">
+        <td class="py-3 px-4 font-medium text-copper-400">${p.username}</td><td class="py-3 px-4">${p.full_name}</td><td class="py-3 px-4 text-[var(--muted)]">${p.email}</td><td class="py-3 px-4"><span class="badge bg-copper-50 text-copper-600">${getRoleName(p.role_id)}</span></td><td class="py-3 px-4 text-center">${p.active?'<span class="badge bg-teal-500/10 text-teal-600">Activo</span>':'<span class="badge bg-gray-100 text-gray-400">Inactivo</span>'}</td>
+        <td class="py-3 px-4 text-center flex items-center justify-center gap-2"><button onclick="openUserForm('${p.id}')" class="text-copper-400 hover:text-copper-500"><i class="fa-solid fa-pen-to-square"></i></button><button onclick="toggleUserActive('${p.id}')" class="${p.active?'text-teal-500':'text-[var(--muted)]'}"><i class="fa-solid ${p.active?'fa-toggle-on':'fa-toggle-off'}"></i></button>${p.id!==state.currentUser.id?`<button onclick="deleteUser('${p.id}')" class="text-terra-500 hover:text-terra-600"><i class="fa-solid fa-trash-can"></i></button>`:''}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function openUserForm(editId=null){
+    const p=editId?state.profiles.find(p=>p.id===editId):null;
+    showModal(`<div class="p-6"><div class="flex items-center justify-between mb-5"><h3 class="font-display text-lg">${p?'Editar':'Nuevo'} Usuario</h3><button onclick="closeModal()" class="text-[var(--muted)] hover:text-[var(--fg)]"><i class="fa-solid fa-times text-lg"></i></button></div>
+    <div class="space-y-4">
+        ${!p?`<div><label class="text-sm font-medium mb-1 block">Email</label><input id="uf-email" type="email" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none" placeholder="usuario@telastock.com"></div>
+        <div><label class="text-sm font-medium mb-1 block">Contraseña</label><input id="uf-pass" type="password" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none" placeholder="Contraseña inicial"></div>`:''}
+        <div><label class="text-sm font-medium mb-1 block">Nombre Completo</label><input id="uf-fullname" type="text" value="${p?p.full_name:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div>
+        <div><label class="text-sm font-medium mb-1 block">Username</label><input id="uf-username" type="text" value="${p?p.username:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div>
+        <div><label class="text-sm font-medium mb-1 block">Rol</label><select id="uf-role" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none">${state.roles.map(r=>`<option value="${r.id}" ${p&&p.role_id===r.id?'selected':''}>${r.name}</option>`).join('')}</select></div>
+        <div class="flex gap-3 pt-2"><button onclick="saveUser('${editId||''}')" class="bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-6 py-2.5 transition"><i class="fa-solid fa-floppy-disk mr-2"></i>Guardar</button><button onclick="closeModal()" class="bg-white border border-[var(--border)] text-[var(--muted)] rounded-lg px-5 py-2.5 transition">Cancelar</button></div>
+    </div></div>`);
+}
+
+async function saveUser(editId){
+    const full_name=document.getElementById('uf-fullname').value.trim();
+    const username=document.getElementById('uf-username').value.trim();
+    const role_id=+document.getElementById('uf-role').value;
+    if(!full_name||!username){showToast('Nombre y username requeridos','error');return;}
+
+    if(editId){
+        // Actualizar perfil existente
+        const{error}=await supabaseClient.from('profiles').update({full_name,username,role_id}).eq('id',editId);
+        if(error){showToast(error.message,'error');return;}
+        showToast('Usuario actualizado','success');
+        closeModal();navigateTo('profiles_users');
+    } else {
+        // Crear nuevo usuario via Supabase Auth
+        const email=document.getElementById('uf-email').value.trim();
+        const password=document.getElementById('uf-pass').value;
+        if(!email||!password){showToast('Email y contraseña requeridos','error');return;}
+
+        const{data,error}=await supabaseClient.auth.signUp({email,password,options:{data:{full_name}}});
+        if(error){showToast('Error creando usuario: '+error.message,'error');return;}
+
+        // El trigger creó el perfil con role_id=3 (Vendedor) por default
+        // Actualizar rol y username si son diferentes
+        const newUserId=data.user.id;
+        const{error:e2}=await supabaseClient.from('profiles').update({username,role_id,full_name}).eq('id',newUserId);
+        if(e2){showToast('Error actualizando perfil: '+e2.message,'error');return;}
+
+        showToast(`Usuario ${username} creado`,'success');
+        closeModal();navigateTo('profiles_users');
+    }
+}
+
+async function toggleUserActive(id){if(id===state.currentUser.id){showToast('No puedes desactivarte','error');return;}const p=state.profiles.find(p=>p.id===id);const{error}=await supabaseClient.from('profiles').update({active:!p.active}).eq('id',id);if(error){showToast(error.message,'error');return;}showToast(p.active?'Desactivado':'Activado',p.active?'warning':'success');navigateTo('profiles_users');}
+
+function deleteUser(id){if(id===state.currentUser.id){showToast('No puedes eliminar tu usuario','error');return;}showModal(`<div class="p-6 text-center"><i class="fa-solid fa-triangle-exclamation text-terra-500 text-4xl mb-4"></i><h3 class="font-display text-lg mb-2">Eliminar Usuario?</h3><div class="flex gap-3 justify-center"><button onclick="doDeleteUser('${id}')" class="bg-terra-500 hover:bg-terra-600 text-white font-semibold rounded-lg px-5 py-2.5">Eliminar</button><button onclick="closeModal()" class="bg-white border border-[var(--border)] text-[var(--muted)] rounded-lg px-5 py-2.5">Cancelar</button></div></div>`);}
+async function doDeleteUser(id){const{error}=await supabaseClient.from('profiles').delete().eq('id',id);if(error){showToast(error.message,'error');return;}closeModal();showToast('Eliminado','success');navigateTo('profiles_users');}
+
+// =============================================
+// PERFILES — ROLES
+// =============================================
+function profilesRolesHTML(){
+    const allPerms=[{id:'dashboard',label:'Dashboard'},{id:'inventory_stock',label:'Stock Actual'},{id:'inventory_movements',label:'Historial Mov.'},{id:'inventory_new_movement',label:'Reg. Movimiento'},{id:'sales_new',label:'Nueva Venta'},{id:'sales_history',label:'Historial Ventas'},{id:'maintenance_fabrics',label:'Mant. Telas'},{id:'maintenance_categories',label:'Mant. Categorías'},{id:'maintenance_suppliers',label:'Mant. Proveedores'},{id:'profiles_users',label:'Mant. Usuarios'},{id:'profiles_roles',label:'Mant. Roles'}];
+    return `<div class="flex items-center justify-between mb-5"><h3 class="text-sm text-[var(--muted)]">${state.roles.length} roles</h3><button onclick="openRoleForm()" class="bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-5 py-2.5 transition"><i class="fa-solid fa-plus mr-2"></i>Nuevo Rol</button></div>
+    <div class="space-y-5">${state.roles.map(r=>`<div class="bg-white rounded-xl border border-[var(--border)] shadow-sm p-5">
+        <div class="flex items-center justify-between mb-3"><div><h4 class="font-display text-base font-bold">${r.name}</h4><p class="text-sm text-[var(--muted)]">${r.description}</p></div><div class="flex gap-2"><button onclick="openRoleForm(${r.id})" class="text-copper-400 hover:text-copper-500"><i class="fa-solid fa-pen-to-square"></i></button>${r.id!==1?`<button onclick="deleteRole(${r.id})" class="text-terra-500 hover:text-terra-600"><i class="fa-solid fa-trash-can"></i></button>`:''}</div></div>
+        <div class="flex flex-wrap gap-2">${allPerms.map(p=>`<span class="badge ${(r.permissions||[]).includes(p.id)?'bg-teal-500/10 text-teal-600':'bg-gray-100 text-gray-400'}">${p.label}</span>`).join('')}</div></div>`).join('')}</div>`;
+}
+function openRoleForm(editId=null){const r=editId?state.roles.find(r=>r.id===editId):null;const allPerms=[{id:'dashboard',label:'Dashboard'},{id:'inventory_stock',label:'Stock Actual'},{id:'inventory_movements',label:'Historial Mov.'},{id:'inventory_new_movement',label:'Reg. Movimiento'},{id:'sales_new',label:'Nueva Venta'},{id:'sales_history',label:'Historial Ventas'},{id:'maintenance_fabrics',label:'Mant. Telas'},{id:'maintenance_categories',label:'Mant. Categorías'},{id:'maintenance_suppliers',label:'Mant. Proveedores'},{id:'profiles_users',label:'Mant. Usuarios'},{id:'profiles_roles',label:'Mant. Roles'}];
+showModal(`<div class="p-6"><div class="flex items-center justify-between mb-5"><h3 class="font-display text-lg">${r?'Editar':'Nuevo'} Rol</h3><button onclick="closeModal()" class="text-[var(--muted)] hover:text-[var(--fg)]"><i class="fa-solid fa-times text-lg"></i></button></div>
+<div class="space-y-4"><div><label class="text-sm font-medium mb-1 block">Nombre</label><input id="rf-name" type="text" value="${r?r.name:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div><div><label class="text-sm font-medium mb-1 block">Descripción</label><input id="rf-desc" type="text" value="${r?r.description:''}" class="w-full border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm focus:border-copper-400 focus:outline-none"></div>
+<div><label class="text-sm font-medium mb-2 block">Permisos</label><div class="grid grid-cols-2 gap-2 bg-cream rounded-lg p-4 border border-[var(--border)]">${allPerms.map(p=>`<label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" class="rf-perm accent-[#D4863A]" value="${p.id}" ${(r?.permissions||[]).includes(p.id)?'checked':''}>${p.label}</label>`).join('')}</div></div>
+<div class="flex gap-3 pt-2"><button onclick="saveRole(${editId||'null'})" class="bg-copper-400 hover:bg-copper-500 text-white font-semibold rounded-lg px-6 py-2.5 transition"><i class="fa-solid fa-floppy-disk mr-2"></i>Guardar</button><button onclick="closeModal()" class="bg-white border border-[var(--border)] text-[var(--muted)] rounded-lg px-5 py-2.5 transition">Cancelar</button></div></div></div>`);}
+async function saveRole(editId){const name=document.getElementById('rf-name').value.trim();const description=document.getElementById('rf-desc').value.trim();const permissions=[...document.querySelectorAll('.rf-perm:checked')].map(cb=>cb.value);if(!name){showToast('Nombre requerido','error');return;}if(editId){const{error}=await supabaseClient.from('roles').update({name,description,permissions}).eq('id',editId);if(error){showToast(error.message,'error');return;}showToast('Rol actualizado','success');}else{const{error}=await supabaseClient.from('roles').insert([{name,description,permissions}]);if(error){showToast(error.message,'error');return;}showToast('Rol creado','success');}closeModal();navigateTo('profiles_roles');}
+function deleteRole(id){const cnt=state.profiles.filter(p=>p.role_id===id).length;if(cnt>0){showToast(`${cnt} usuarios con este rol`,'error');return;}showModal(`<div class="p-6 text-center"><i class="fa-solid fa-triangle-exclamation text-terra-500 text-4xl mb-4"></i><h3 class="font-display text-lg mb-2">Eliminar Rol?</h3><div class="flex gap-3 justify-center"><button onclick="doDeleteRole(${id})" class="bg-terra-500 hover:bg-terra-600 text-white font-semibold rounded-lg px-5 py-2.5">Eliminar</button><button onclick="closeModal()" class="bg-white border border-[var(--border)] text-[var(--muted)] rounded-lg px-5 py-2.5">Cancelar</button></div></div>`);}
+async function doDeleteRole(id){await supabaseClient.from('roles').delete().eq('id',id);closeModal();showToast('Eliminado','success');navigateTo('profiles_roles');}
+
+// =============================================
+// INICIALIZACIÓN
+// =============================================
+checkSession();
+</script>
+</body>
+</html>
