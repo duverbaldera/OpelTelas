@@ -163,7 +163,7 @@ const MENU = [
 // UTILIDADES
 // =============================================
 function fmtDate(d) { if(!d)return'-'; const p=d.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; }
-function fmtCurrency(n) { return '$'+Number(n).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtCurrency(n) { return 'S/'+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function todayStr() { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 
 function showToast(msg,type='info') {
@@ -436,7 +436,7 @@ function initDashboardCharts(){
     const fabricSales={};
     state.saleItems.forEach(si=>{fabricSales[si.fabric_name]=(fabricSales[si.fabric_name]||0)+Number(si.subtotal);});
     const salesData=Object.entries(fabricSales).sort((a,b)=>b[1]-a[1]).slice(0,7);
-    state.charts.salesTrend=new Chart(document.getElementById('chart-sales-trend'),{type:'bar',data:{labels:salesData.map(d=>d[0]),datasets:[{data:salesData.map(d=>d[1]),backgroundColor:cc.slice(0,salesData.length),borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{callback:v=>'$'+v}},x:{grid:{display:false}}}}});
+    state.charts.salesTrend=new Chart(document.getElementById('chart-sales-trend'),{type:'bar',data:{labels:salesData.map(d=>d[0]),datasets:[{data:salesData.map(d=>d[1]),backgroundColor:cc.slice(0,salesData.length),borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{callback:v=>'S/'+v}},x:{grid:{display:false}}}}});
     // Top vendidas
     const fabricKg={};
     state.saleItems.forEach(si=>{fabricKg[si.fabric_name]=(fabricKg[si.fabric_name]||0)+Number(si.quantity_kg);});
